@@ -1,90 +1,81 @@
-# Ethics of AI Project: Auditing DP-SGD Privacy Leakage
+# DP-SGD Privacy Auditing Tool
 
-This repository gives you a runnable baseline for your project proposal:
+This repository contains a group-built tool for auditing privacy leakage in differentially private training.
+The tool compares theoretical privacy guarantees against empirical leakage estimated via poisoning-based audits.
 
-- Train DP-SGD models on binary Fashion-MNIST.
-- Run poisoning-based privacy auditing.
-- Compare theoretical privacy (`epsilon_theoretical`) and empirical lower bound (`epsilon_empirical_lb`).
-- Generate CSV + figures for your report.
+## Setup Instructions
 
-## 1) Project novelty claim you can use
+### Requirements
 
-This project extends Jagielski et al. (NeurIPS 2020) with a **systematic hyperparameter sensitivity analysis** and a **practical leakage-aware tuning recipe**.
+- Python 3.10+
+- Windows PowerShell (or any shell)
 
-Research question:
+### Installation
 
-> Which DP-SGD hyperparameters most strongly influence empirical privacy leakage at similar utility, and how should we tune them to reduce leakage?
-
-## 2) Quick start (Windows PowerShell)
+1. Clone this repository and open it in a terminal.
+2. Create and activate a virtual environment.
+3. Install dependencies.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+```
+
+## Description of Tool and Experiment Usage
+
+### What the tool does
+
+- Trains DP-SGD models with Opacus on binary Fashion-MNIST.
+- Creates clean and poisoned training datasets.
+- Computes theoretical privacy epsilon from the DP accountant.
+- Computes empirical epsilon lower bounds from audit outcomes.
+- Runs hyperparameter sweeps and reports sensitivity trends.
+- Generates report-ready CSV files and plots.
+
+### Main run command
+
+```powershell
 python run_experiments.py --config configs/sweep.yaml --output-dir results
 ```
 
-Fast smoke test (fewer configs):
+### Quick test command
 
 ```powershell
 python run_experiments.py --config configs/sweep.yaml --output-dir results --max-configs 2
 ```
 
-## 3) Outputs
+### Important output files
 
-After a run, check:
+- results/summary.csv
+- results/sensitivity_analysis.csv
+- results/plot_eps_emp_vs_noise.png
+- results/plot_eps_emp_vs_clip.png
+- results/plot_gap_vs_noise.png
+- results/plot_theo_vs_empirical_noise.png
+- results/plot_theo_vs_empirical_clip.png
 
-- `results/summary.csv`
-- `results/plot_eps_emp_vs_noise.png`
-- `results/plot_eps_emp_vs_clip.png`
-- `results/plot_gap_vs_noise.png`
+### Metric definitions
 
-## 4) What each metric means
+- epsilon_theoretical: Privacy estimate from Opacus accountant.
+- epsilon_empirical_lb: Empirical lower bound from auditing and confidence intervals.
+- gap_ratio: epsilon_theoretical divided by epsilon_empirical_lb when empirical bound is non-zero.
+- clean_acc_mean: Average clean test accuracy.
 
-- `epsilon_theoretical`: DP accountant estimate from Opacus.
-- `epsilon_empirical_lb`: empirical lower bound inferred by auditing (Clopper-Pearson calibrated).
-- `gap_ratio = epsilon_theoretical / epsilon_empirical_lb`: larger means bigger mismatch between theory and measured leakage lower bound.
-- `clean_acc_mean`: average clean test accuracy.
+## Clear Indication of What Was Implemented by the Group
 
-## 5) Required report sections (6-10 pages)
+The following components were implemented by our group in this repository:
 
-Use this exact structure to satisfy the rubric:
+1. DP-SGD training pipeline and epsilon extraction (src/train_dp.py).
+2. Dataset preparation, trigger insertion, and poisoning utilities (src/data.py).
+3. Logistic regression and MLP model definitions (src/model.py).
+4. Privacy audit logic with Clopper-Pearson calibrated empirical bounds (src/audit.py).
+5. Experiment orchestration, hyperparameter sweeps, plotting, and sensitivity analysis (src/experiments.py).
+6. Command-line runner for complete experiments (run_experiments.py).
+7. Configuration-driven experiment control (configs/sweep.yaml).
 
-1. Introduction and motivation
-2. Related work
-3. Methodology
-4. Experimental setup
-5. Results
-6. Discussion and limitations
-7. Conclusion
+## Reproducibility Notes
 
-## 6) Suggested experiments for novelty
-
-1. Hyperparameter ranking:
-   - Sweep noise multiplier, clipping norm, batch size, learning rate, epochs.
-2. Fixed-accuracy comparison:
-   - Keep accuracy in a narrow band and compare leakage trends.
-3. One extra contribution:
-   - Initialization randomness study OR improved trigger strategy.
-
-## 7) Team contribution checklist (add names)
-
-- Member A: DP training pipeline and accountant integration
-- Member B: Auditing implementation and confidence intervals
-- Member C: Hyperparameter sweep automation and plotting
-- Member D: Report writing, related work, and result analysis
-
-Replace with your actual names and exact contributions before submission.
-
-## 8) Limitations to mention honestly
-
-- Binary Fashion-MNIST is a simplified setting.
-- Backdoor-style auditing gives lower bounds, not full privacy characterization.
-- Runtime limits reduce number of trials and confidence tightness.
-
-## 9) Minimum submission package
-
-- Clean code repository with this README
-- `results/summary.csv` + plots
-- Final PDF report (NeurIPS/ICML style)
-- Short section: "Implemented by our group"
+- Random seeds are set from the config file.
+- Results may vary slightly across machines and PyTorch/Opacus versions.
+- Increase num_trials in configs/sweep.yaml for stronger statistical confidence.
