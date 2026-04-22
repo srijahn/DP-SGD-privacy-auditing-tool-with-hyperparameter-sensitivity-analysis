@@ -142,6 +142,8 @@ def _compute_sensitivity(df: pd.DataFrame) -> pd.DataFrame:
         "poison_trigger_mean",
         "clean_acc_mean",
         "poison_acc_mean",
+        "attack_advantage",
+        "utility_drop",
         "n_trials",
         "n_estimation_trials",
         "debug",

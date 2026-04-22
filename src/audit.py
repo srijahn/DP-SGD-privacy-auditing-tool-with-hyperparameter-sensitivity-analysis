@@ -33,17 +33,32 @@ def eps_lb_from_counts(
     poisoning_k: int,
     alpha: float,
 ) -> Tuple[float, Dict[str, float]]:
-    # We compute bounds in both directions and keep the stronger one.
+    # We compute bounds for both the event and its complement, then keep the strongest one.
     p_clean_lo = cp_lower(clean_hits, n, alpha / 2)
     p_clean_hi = cp_upper(clean_hits, n, alpha / 2)
     p_poison_lo = cp_lower(poison_hits, n, alpha / 2)
     p_poison_hi = cp_upper(poison_hits, n, alpha / 2)
 
-    ratio_a = p_clean_lo / max(p_poison_hi, 1e-12)
-    ratio_b = p_poison_lo / max(p_clean_hi, 1e-12)
+    clean_miss = n - clean_hits
+    poison_miss = n - poison_hits
+    p_clean_miss_lo = cp_lower(clean_miss, n, alpha / 2)
+    p_clean_miss_hi = cp_upper(clean_miss, n, alpha / 2)
+    p_poison_miss_lo = cp_lower(poison_miss, n, alpha / 2)
+    p_poison_miss_hi = cp_upper(poison_miss, n, alpha / 2)
 
-    ratio = max(ratio_a, ratio_b, 1.0)
-    direction = "clean_vs_poison" if ratio_a >= ratio_b else "poison_vs_clean"
+    ratio_event_a = p_clean_lo / max(p_poison_hi, 1e-12)
+    ratio_event_b = p_poison_lo / max(p_clean_hi, 1e-12)
+    ratio_comp_a = p_clean_miss_lo / max(p_poison_miss_hi, 1e-12)
+    ratio_comp_b = p_poison_miss_lo / max(p_clean_miss_hi, 1e-12)
+
+    candidates = {
+        "event_clean_vs_poison": ratio_event_a,
+        "event_poison_vs_clean": ratio_event_b,
+        "complement_clean_vs_poison": ratio_comp_a,
+        "complement_poison_vs_clean": ratio_comp_b,
+    }
+    best_key = max(candidates, key=candidates.get)
+    ratio = max(candidates[best_key], 1.0)
     eps_lb = max(0.0, math.log(ratio) / max(poisoning_k, 1))
 
     debug = {
@@ -51,8 +66,12 @@ def eps_lb_from_counts(
         "p_clean_hi": p_clean_hi,
         "p_poison_lo": p_poison_lo,
         "p_poison_hi": p_poison_hi,
+        "p_clean_miss_lo": p_clean_miss_lo,
+        "p_clean_miss_hi": p_clean_miss_hi,
+        "p_poison_miss_lo": p_poison_miss_lo,
+        "p_poison_miss_hi": p_poison_miss_hi,
         "ratio": ratio,
-        "direction": direction,
+        "direction": best_key,
     }
     return eps_lb, debug
 
@@ -62,7 +81,12 @@ def choose_threshold(cal_clean: List[float], cal_poison: List[float], poisoning_
     if vals.size == 0:
         return 0.5
 
-    candidates = np.unique(np.quantile(vals, q=np.linspace(0.1, 0.9, 17)))
+    unique_vals = np.unique(vals)
+    if unique_vals.size == 1:
+        candidates = unique_vals
+    else:
+        midpoints = (unique_vals[:-1] + unique_vals[1:]) / 2.0
+        candidates = np.unique(np.concatenate([unique_vals, midpoints]))
     best_eps = -1.0
     best_t = float(np.median(vals))
 

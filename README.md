@@ -1,13 +1,14 @@
 # DP-SGD Privacy Auditing Tool
 
-This repository contains a group-built tool for auditing privacy leakage in differentially private training.
+We built a tool for auditing privacy leakage in differentially private training. 
 The tool compares theoretical privacy guarantees against empirical leakage estimated via poisoning-based audits.
+
 
 ## Novel Contribution
 
 This project goes beyond direct paper reimplementation in three ways:
 
-1. It adds a clipping-aware, low-variance poisoning mode (`svd_lowvar`) that uses an SVD-derived direction to create harder-to-ignore poison points.
+1. It adds a clipping-aware, low-variance poisoning mode (`svd_lowvar`) that uses an SVD-derived direction to create a new poisoning baseline for comparison.
 2. It frames a critical research question: which DP-SGD hyperparameters most strongly drive the privacy gap between theoretical epsilon and empirical leakage?
 3. It produces a documented auditing toolkit with method-comparison and critical-findings outputs for evaluation and reporting.
 
@@ -27,6 +28,8 @@ Secondary question:
 - Extension 1: Multi-method audit framework with direct head-to-head poisoning comparison (`square` vs `svd_lowvar`).
 - Extension 2: Critical analysis outputs ranking hyperparameters by their association with privacy gap and utility.
 - Extension 3: Privacy-utility reporting artifacts intended for practical model audit workflows.
+
+Note: `svd_lowvar` is treated as an exploratory method and may not outperform the square-trigger baseline on every run.
 
 ## Setup Instructions
 
@@ -65,7 +68,7 @@ pip install -r requirements.txt
 python run_experiments.py --config configs/sweep.yaml --output-dir results
 ```
 
-### Method-comparison run (recommended for report)
+### Method-comparison run
 
 ```powershell
 python run_experiments.py --config configs/sweep.yaml --output-dir results --max-configs 12
@@ -90,6 +93,16 @@ python run_experiments.py --config configs/sweep.yaml --output-dir results --max
 - results/plot_theo_vs_empirical_clip.png
 - results/plot_empirical_eps_by_method.png
 
+### Current sweep settings
+
+The default sweep varies:
+
+- `model_name`: `logreg`, `mlp`
+- `poison_method`: `square`, `svd_lowvar`
+- `noise_multiplier`: `0.4`, `0.8`, `1.2`
+- `max_grad_norm`: `0.5`, `1.0`
+- `svd_scale`: `0.5`, `1.0`, `2.0`
+
 ### Metric definitions
 
 - epsilon_theoretical: Privacy estimate from Opacus accountant.
@@ -99,7 +112,7 @@ python run_experiments.py --config configs/sweep.yaml --output-dir results --max
 - attack_advantage: Absolute difference in trigger-detection hit rates between clean and poisoned runs.
 - utility_drop: Change in clean accuracy under poisoned training.
 
-## How to Interpret Key Results
+## Interpretion of Key Results
 
 - Stronger empirical leakage signal:
 Higher `epsilon_empirical_lb` and higher `attack_advantage` indicate the audit finds stronger distinguishability.
@@ -108,9 +121,7 @@ Higher `gap_ratio` indicates a larger disconnect between claimed and measured pr
 - Better practical audit finding:
 Higher `epsilon_empirical_lb` with low absolute `utility_drop` suggests privacy risk can be exposed without large utility degradation.
 
-## Report Checklist
-
-Use these files directly in your submission:
+## What the results represent:
 
 1. `results/summary.csv`: Full sweep outcomes per configuration.
 2. `results/method_comparison.csv`: Mean performance by poisoning method (core novelty evidence).
@@ -118,13 +129,11 @@ Use these files directly in your submission:
 4. `results/sensitivity_analysis.csv`: Hyperparameter influence summary.
 5. `results/plot_empirical_eps_by_method.png`: Visual proof of method-level differences.
 
-Recommended statement for your methodology section:
+### Methodology:
 
 "Our work reproduces the core DP-SGD auditing protocol and extends it with a clipping-aware low-variance poisoning method, comparative multi-method evaluation, and report-oriented sensitivity diagnostics to study privacy leakage beyond theoretical guarantees."
 
-## Clear Indication of What Was Implemented by the Group
-
-The following components were implemented by our group in this repository:
+## The following components were implemented by our group:
 
 1. DP-SGD training pipeline and epsilon extraction (src/train_dp.py).
 2. Dataset preparation, trigger insertion, and poisoning utilities with two audit methods (src/data.py).

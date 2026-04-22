@@ -25,3 +25,4 @@ sweep:
   poison_method: ["square", "svd_lowvar"]
   noise_multiplier: [0.4, 0.8, 1.2]
   max_grad_norm: [0.5, 1.0]
+  svd_scale: [0.5, 1.0, 2.0]

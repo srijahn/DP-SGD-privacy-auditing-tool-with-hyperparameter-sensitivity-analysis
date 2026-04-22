@@ -30,6 +30,17 @@ def apply_square_trigger(images: torch.Tensor, size: int = 4, value: float = 1.0
     return out
 
 
+def _select_poison_indices(labels: torch.Tensor, target_label: int, poisoning_k: int, seed: int) -> torch.Tensor:
+    g = torch.Generator().manual_seed(seed)
+    n = labels.shape[0]
+    candidates = (labels != target_label).nonzero(as_tuple=False).squeeze(1)
+    if candidates.numel() == 0:
+        candidates = torch.arange(n)
+    k = min(poisoning_k, candidates.numel())
+    perm = torch.randperm(candidates.numel(), generator=g)[:k]
+    return candidates[perm]
+
+
 def poison_dataset(
     x_train: torch.Tensor,
     y_train: torch.Tensor,
@@ -38,10 +49,7 @@ def poison_dataset(
     seed: int,
     trigger_size: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    g = torch.Generator().manual_seed(seed)
-    n = x_train.shape[0]
-    k = min(poisoning_k, n)
-    chosen = torch.randperm(n, generator=g)[:k]
+    chosen = _select_poison_indices(y_train, target_label, poisoning_k, seed)
 
     x_poison = x_train.clone()
     y_poison = y_train.clone()
@@ -58,29 +66,24 @@ def poison_dataset_svd_lowvar(
     seed: int,
     scale: float = 1.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    g = torch.Generator().manual_seed(seed)
-    n = x_train.shape[0]
-    k = min(poisoning_k, n)
-    chosen = torch.randperm(n, generator=g)[:k]
+    chosen = _select_poison_indices(y_train, target_label, poisoning_k, seed)
 
     # Flatten data and find the lowest-variance direction via SVD.
+    n = x_train.shape[0]
     x_flat = x_train.view(n, -1)
     x_center = x_flat - x_flat.mean(dim=0, keepdim=True)
     _, _, vh = torch.linalg.svd(x_center, full_matrices=False)
     lowvar_dir = vh[-1]
 
-    max_idx = int(torch.argmax(torch.abs(lowvar_dir)).item())
-    if lowvar_dir[max_idx] < 0:
+    if lowvar_dir.sum() < 0:
         lowvar_dir = -lowvar_dir
 
-    sample_norm = torch.norm(x_flat, dim=1).mean().clamp(min=1e-8)
-    poison_flat = lowvar_dir / lowvar_dir.norm().clamp(min=1e-8)
-    poison_flat = poison_flat * sample_norm * float(scale)
-    poison_pattern = poison_flat.view_as(x_train[0]).clamp(0.0, 1.0)
+    direction = lowvar_dir / lowvar_dir.abs().max().clamp(min=1e-8)
+    perturbation = direction.view_as(x_train[0]) * float(scale) * 0.20
 
     x_poison = x_train.clone()
     y_poison = y_train.clone()
-    x_poison[chosen] = poison_pattern
+    x_poison[chosen] = torch.clamp(x_poison[chosen] + perturbation, 0.0, 1.0)
     y_poison[chosen] = target_label
     return x_poison, y_poison
 
