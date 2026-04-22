@@ -50,6 +50,72 @@ def poison_dataset(
     return x_poison, y_poison
 
 
+def poison_dataset_svd_lowvar(
+    x_train: torch.Tensor,
+    y_train: torch.Tensor,
+    poisoning_k: int,
+    target_label: int,
+    seed: int,
+    scale: float = 1.0,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    g = torch.Generator().manual_seed(seed)
+    n = x_train.shape[0]
+    k = min(poisoning_k, n)
+    chosen = torch.randperm(n, generator=g)[:k]
+
+    # Flatten data and find the lowest-variance direction via SVD.
+    x_flat = x_train.view(n, -1)
+    x_center = x_flat - x_flat.mean(dim=0, keepdim=True)
+    _, _, vh = torch.linalg.svd(x_center, full_matrices=False)
+    lowvar_dir = vh[-1]
+
+    max_idx = int(torch.argmax(torch.abs(lowvar_dir)).item())
+    if lowvar_dir[max_idx] < 0:
+        lowvar_dir = -lowvar_dir
+
+    sample_norm = torch.norm(x_flat, dim=1).mean().clamp(min=1e-8)
+    poison_flat = lowvar_dir / lowvar_dir.norm().clamp(min=1e-8)
+    poison_flat = poison_flat * sample_norm * float(scale)
+    poison_pattern = poison_flat.view_as(x_train[0]).clamp(0.0, 1.0)
+
+    x_poison = x_train.clone()
+    y_poison = y_train.clone()
+    x_poison[chosen] = poison_pattern
+    y_poison[chosen] = target_label
+    return x_poison, y_poison
+
+
+def create_poisoned_dataset(
+    x_train: torch.Tensor,
+    y_train: torch.Tensor,
+    poisoning_k: int,
+    target_label: int,
+    seed: int,
+    poison_method: str,
+    trigger_size: int,
+    svd_scale: float = 1.0,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    if poison_method == "square":
+        return poison_dataset(
+            x_train,
+            y_train,
+            poisoning_k=poisoning_k,
+            target_label=target_label,
+            seed=seed,
+            trigger_size=trigger_size,
+        )
+    if poison_method == "svd_lowvar":
+        return poison_dataset_svd_lowvar(
+            x_train,
+            y_train,
+            poisoning_k=poisoning_k,
+            target_label=target_label,
+            seed=seed,
+            scale=svd_scale,
+        )
+    raise ValueError(f"Unsupported poison_method={poison_method}")
+
+
 def load_binary_fashion_mnist(
     data_dir: str,
     max_train_per_class: int,

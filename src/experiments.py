@@ -31,6 +31,7 @@ def _normalize_types(cfg: Dict) -> Dict:
         "weight_decay",
         "noise_multiplier",
         "max_grad_norm",
+        "svd_scale",
     }
 
     base = cfg.get("base", {})
@@ -60,7 +61,27 @@ def _normalize_types(cfg: Dict) -> Dict:
 
 
 def load_config(config_path: str) -> Dict:
-    with open(config_path, "r", encoding="utf-8") as f:
+    requested = Path(config_path)
+    candidates = [requested]
+
+    # Allow shorthand like "sweep.yaml" by also checking under configs/.
+    if not requested.is_absolute():
+        candidates.append(Path("configs") / requested)
+
+    resolved = None
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            resolved = candidate
+            break
+
+    if resolved is None:
+        searched = ", ".join(str(p) for p in candidates)
+        raise FileNotFoundError(
+            f"Config file not found. Tried: {searched}. "
+            "Use --config configs/sweep.yaml or provide an absolute path."
+        )
+
+    with open(resolved, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     return _normalize_types(cfg)
 
@@ -107,7 +128,7 @@ def _plot_theo_vs_empirical(df: pd.DataFrame, x_col: str, out_path: Path) -> Non
 
 
 def _compute_sensitivity(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute sensitivity analysis: correlation of each numeric hyperparameter with gap_ratio."""
+    """Compute sensitivity of hyperparameters against key privacy and utility metrics."""
     if df.empty:
         return pd.DataFrame()
     
@@ -131,21 +152,66 @@ def _compute_sensitivity(df: pd.DataFrame) -> pd.DataFrame:
     
     sensitivities = []
     for col in hyperparam_cols:
-        # Remove NaN values for correlation calculation
-        valid_idx = ~(df[col].isna() | df["gap_ratio"].isna())
-        if valid_idx.sum() > 1:
-            corr = df.loc[valid_idx, col].corr(df.loc[valid_idx, "gap_ratio"])
-            variance_contribution = df.loc[valid_idx, col].std() if df.loc[valid_idx, col].std() > 0 else 0
-            sensitivities.append({
-                "hyperparameter": col,
-                "correlation_with_gap_ratio": float(corr) if not np.isnan(corr) else 0.0,
-                "normalized_variance": float(variance_contribution),
-            })
+        valid_gap = ~(df[col].isna() | df["gap_ratio"].isna())
+        valid_emp = ~(df[col].isna() | df["epsilon_empirical_lb"].isna())
+        valid_utility = ~(df[col].isna() | df["clean_acc_mean"].isna())
+
+        if valid_gap.sum() > 1 and valid_emp.sum() > 1 and valid_utility.sum() > 1:
+            corr_gap = df.loc[valid_gap, col].corr(df.loc[valid_gap, "gap_ratio"])
+            corr_emp = df.loc[valid_emp, col].corr(df.loc[valid_emp, "epsilon_empirical_lb"])
+            corr_util = df.loc[valid_utility, col].corr(df.loc[valid_utility, "clean_acc_mean"])
+            variance_contribution = df.loc[valid_gap, col].std() if df.loc[valid_gap, col].std() > 0 else 0
+            sensitivities.append(
+                {
+                    "hyperparameter": col,
+                    "corr_gap_ratio": float(corr_gap) if not np.isnan(corr_gap) else 0.0,
+                    "corr_empirical_epsilon": float(corr_emp) if not np.isnan(corr_emp) else 0.0,
+                    "corr_clean_accuracy": float(corr_util) if not np.isnan(corr_util) else 0.0,
+                    "normalized_variance": float(variance_contribution),
+                }
+            )
     
     sensitivity_df = pd.DataFrame(sensitivities)
     if not sensitivity_df.empty:
-        sensitivity_df = sensitivity_df.sort_values("correlation_with_gap_ratio", key=abs, ascending=False)
+        sensitivity_df = sensitivity_df.sort_values("corr_gap_ratio", key=abs, ascending=False)
     return sensitivity_df
+
+
+def _method_comparison(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "poison_method" not in df.columns:
+        return pd.DataFrame()
+    cols = [
+        "epsilon_theoretical",
+        "epsilon_empirical_lb",
+        "gap_ratio",
+        "attack_advantage",
+        "clean_acc_mean",
+        "utility_drop",
+    ]
+    present_cols = [c for c in cols if c in df.columns]
+    return df.groupby("poison_method", as_index=False)[present_cols].mean().sort_values("epsilon_empirical_lb", ascending=False)
+
+
+def _critical_findings(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+    out = df.copy()
+    out["privacy_utility_score"] = out["epsilon_empirical_lb"] * out["clean_acc_mean"]
+    cols = [
+        "poison_method",
+        "model_name",
+        "noise_multiplier",
+        "max_grad_norm",
+        "epsilon_theoretical",
+        "epsilon_empirical_lb",
+        "gap_ratio",
+        "attack_advantage",
+        "clean_acc_mean",
+        "utility_drop",
+        "privacy_utility_score",
+    ]
+    cols = [c for c in cols if c in out.columns]
+    return out.sort_values(["epsilon_empirical_lb", "attack_advantage"], ascending=False)[cols]
 
 
 def run_all(config_path: str, output_dir: str, max_configs: int | None = None) -> pd.DataFrame:
@@ -208,12 +274,37 @@ def run_all(config_path: str, output_dir: str, max_configs: int | None = None) -
         out_path=out_dir / "plot_theo_vs_empirical_clip.png",
     )
 
+    if "poison_method" in df.columns and df["poison_method"].nunique() > 1:
+        plt.figure(figsize=(8, 5))
+        grouped = df.groupby("poison_method", as_index=False)["epsilon_empirical_lb"].mean()
+        plt.bar(grouped["poison_method"], grouped["epsilon_empirical_lb"])
+        plt.title("Empirical epsilon lower bound by poisoning method")
+        plt.xlabel("Poisoning method")
+        plt.ylabel("Empirical epsilon lower bound")
+        plt.tight_layout()
+        plt.savefig(out_dir / "plot_empirical_eps_by_method.png", dpi=180)
+        plt.close()
+
     # NEW: Compute and save hyperparameter sensitivity ranking
     sensitivity_df = _compute_sensitivity(df)
     sensitivity_csv = out_dir / "sensitivity_analysis.csv"
     sensitivity_df.to_csv(sensitivity_csv, index=False)
+
+    method_df = _method_comparison(df)
+    method_csv = out_dir / "method_comparison.csv"
+    method_df.to_csv(method_csv, index=False)
+
+    critical_df = _critical_findings(df)
+    critical_csv = out_dir / "critical_findings.csv"
+    critical_df.to_csv(critical_csv, index=False)
+
     print(f"\n=== Hyperparameter Sensitivity Analysis ===")
     print(sensitivity_df.to_string(index=False))
     print(f"Saved to {sensitivity_csv}")
+    if not method_df.empty:
+        print("\n=== Poison Method Comparison ===")
+        print(method_df.to_string(index=False))
+        print(f"Saved to {method_csv}")
+    print(f"Saved to {critical_csv}")
 
     return df

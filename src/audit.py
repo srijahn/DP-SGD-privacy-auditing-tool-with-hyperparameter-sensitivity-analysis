@@ -6,7 +6,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 from scipy.stats import beta
 
-from src.data import poison_dataset
+from src.data import create_poisoned_dataset
 from src.train_dp import train_dp_once
 
 
@@ -43,6 +43,7 @@ def eps_lb_from_counts(
     ratio_b = p_poison_lo / max(p_clean_hi, 1e-12)
 
     ratio = max(ratio_a, ratio_b, 1.0)
+    direction = "clean_vs_poison" if ratio_a >= ratio_b else "poison_vs_clean"
     eps_lb = max(0.0, math.log(ratio) / max(poisoning_k, 1))
 
     debug = {
@@ -51,6 +52,7 @@ def eps_lb_from_counts(
         "p_poison_lo": p_poison_lo,
         "p_poison_hi": p_poison_hi,
         "ratio": ratio,
+        "direction": direction,
     }
     return eps_lb, debug
 
@@ -102,13 +104,15 @@ def run_audit(
             seed=trial_seed,
         )
 
-        x_poison, y_poison = poison_dataset(
+        x_poison, y_poison = create_poisoned_dataset(
             x_train,
             y_train,
             poisoning_k=cfg["poisoning_k"],
             target_label=cfg["target_label"],
             seed=trial_seed,
+            poison_method=cfg.get("poison_method", "square"),
             trigger_size=cfg["trigger_size"],
+            svd_scale=cfg.get("svd_scale", 1.0),
         )
 
         poison_out = train_dp_once(
@@ -152,11 +156,15 @@ def run_audit(
 
     eps_th = float(np.mean(eps_th_values)) if eps_th_values else float("nan")
     gap_ratio = float("nan") if eps_emp <= 0.0 else (eps_th / eps_emp)
+    attack_advantage = abs(clean_hits - poison_hits) / max(est_n, 1)
+    utility_drop = float(np.mean(acc_clean_values) - np.mean(acc_poison_values))
 
     return {
         "epsilon_theoretical": eps_th,
         "epsilon_empirical_lb": eps_emp,
         "gap_ratio": gap_ratio,
+        "attack_advantage": attack_advantage,
+        "utility_drop": utility_drop,
         "threshold": threshold,
         "clean_trigger_mean": float(np.mean(clean_scores)),
         "poison_trigger_mean": float(np.mean(poison_scores)),

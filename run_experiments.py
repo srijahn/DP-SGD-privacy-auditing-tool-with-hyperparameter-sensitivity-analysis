@@ -16,12 +16,14 @@ def main() -> None:
     print("Finished. Rows:", len(df))
     if not df.empty:
         cols = [
+            "poison_method",
             "model_name",
             "noise_multiplier",
             "max_grad_norm",
             "epsilon_theoretical",
             "epsilon_empirical_lb",
             "gap_ratio",
+            "attack_advantage",
             "clean_acc_mean",
         ]
         cols = [c for c in cols if c in df.columns]
