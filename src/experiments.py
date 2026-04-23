@@ -127,7 +127,7 @@ def _plot_theo_vs_empirical(df: pd.DataFrame, x_col: str, out_path: Path) -> Non
     plt.close()
 
 
-def _compute_sensitivity(df: pd.DataFrame) -> pd.DataFrame:
+def _compute_sensitivity(df: pd.DataFrame, sweep_keys: List[str] | None = None) -> pd.DataFrame:
     """Compute sensitivity of hyperparameters against key privacy and utility metrics."""
     if df.empty:
         return pd.DataFrame()
@@ -150,7 +150,10 @@ def _compute_sensitivity(df: pd.DataFrame) -> pd.DataFrame:
     }
     
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    hyperparam_cols = [col for col in numeric_cols if col not in result_cols]
+    if sweep_keys is None:
+        hyperparam_cols = [col for col in numeric_cols if col not in result_cols]
+    else:
+        hyperparam_cols = [col for col in sweep_keys if col in numeric_cols and col not in result_cols]
     
     sensitivities = []
     for col in hyperparam_cols:
@@ -158,11 +161,14 @@ def _compute_sensitivity(df: pd.DataFrame) -> pd.DataFrame:
         valid_emp = ~(df[col].isna() | df["epsilon_empirical_lb"].isna())
         valid_utility = ~(df[col].isna() | df["clean_acc_mean"].isna())
 
+        variance_contribution = df[col].std() if df[col].std() > 0 else 0.0
+        if variance_contribution <= 0.0:
+            continue
+
         if valid_gap.sum() > 1 and valid_emp.sum() > 1 and valid_utility.sum() > 1:
             corr_gap = df.loc[valid_gap, col].corr(df.loc[valid_gap, "gap_ratio"])
             corr_emp = df.loc[valid_emp, col].corr(df.loc[valid_emp, "epsilon_empirical_lb"])
             corr_util = df.loc[valid_utility, col].corr(df.loc[valid_utility, "clean_acc_mean"])
-            variance_contribution = df.loc[valid_gap, col].std() if df.loc[valid_gap, col].std() > 0 else 0
             sensitivities.append(
                 {
                     "hyperparameter": col,
@@ -288,7 +294,7 @@ def run_all(config_path: str, output_dir: str, max_configs: int | None = None) -
         plt.close()
 
     # NEW: Compute and save hyperparameter sensitivity ranking
-    sensitivity_df = _compute_sensitivity(df)
+    sensitivity_df = _compute_sensitivity(df, sweep_keys=list(cfg.get("sweep", {}).keys()))
     sensitivity_csv = out_dir / "sensitivity_analysis.csv"
     sensitivity_df.to_csv(sensitivity_csv, index=False)
 
