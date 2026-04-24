@@ -108,6 +108,32 @@ def _plot_line(df: pd.DataFrame, x_col: str, y_col: str, out_path: Path, title: 
     plt.close()
 
 
+def _plot_grouped_lines(
+    df: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    group_col: str,
+    out_path: Path,
+    title: str,
+) -> None:
+    if df.empty or group_col not in df.columns:
+        return
+
+    plt.figure(figsize=(7, 4.5))
+    for group_value, group_df in df.groupby(group_col):
+        grp = group_df.groupby(x_col, as_index=False)[y_col].mean().sort_values(x_col)
+        plt.plot(grp[x_col], grp[y_col], marker="o", linewidth=2, label=str(group_value))
+
+    plt.title(title)
+    plt.xlabel(x_col)
+    plt.ylabel(y_col)
+    plt.grid(alpha=0.25)
+    plt.legend(title=group_col)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=180)
+    plt.close()
+
+
 def _plot_theo_vs_empirical(df: pd.DataFrame, x_col: str, out_path: Path) -> None:
     """Plot theoretical and empirical epsilon on the same graph to show the gap."""
     if df.empty:
@@ -222,29 +248,7 @@ def _critical_findings(df: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values(["epsilon_empirical_lb", "attack_advantage"], ascending=False)[cols]
 
 
-def run_all(config_path: str, output_dir: str, max_configs: int | None = None) -> pd.DataFrame:
-    cfg = load_config(config_path)
-    out_dir = Path(output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    x_train, y_train, x_test, y_test = load_binary_fashion_mnist(
-        data_dir=cfg["dataset"]["data_dir"],
-        max_train_per_class=cfg["dataset"]["max_train_per_class"],
-        max_test_per_class=cfg["dataset"]["max_test_per_class"],
-    )
-
-    base = cfg["base"]
-    combos = list(_grid_from_sweep(cfg["sweep"]))
-    if max_configs is not None:
-        combos = combos[:max_configs]
-
-    rows = []
-    for combo in tqdm(combos, desc="Running configs"):
-        run_cfg = {**base, **combo}
-        result = run_audit(x_train, y_train, x_test, y_test, run_cfg)
-        rows.append({**run_cfg, **result})
-
-    df = pd.DataFrame(rows)
+def _write_outputs(df: pd.DataFrame, out_dir: Path, sweep_keys: List[str]) -> None:
     summary_csv = out_dir / "summary.csv"
     df.to_csv(summary_csv, index=False)
 
@@ -270,7 +274,6 @@ def run_all(config_path: str, output_dir: str, max_configs: int | None = None) -
         title="Gap ratio (eps_th / eps_emp) vs noise multiplier",
     )
 
-    # NEW: Plot theoretical vs empirical epsilon side-by-side
     _plot_theo_vs_empirical(
         df,
         x_col="noise_multiplier",
@@ -280,6 +283,47 @@ def run_all(config_path: str, output_dir: str, max_configs: int | None = None) -
         df,
         x_col="max_grad_norm",
         out_path=out_dir / "plot_theo_vs_empirical_clip.png",
+    )
+
+    _plot_grouped_lines(
+        df,
+        x_col="noise_multiplier",
+        y_col="epsilon_empirical_lb",
+        group_col="poison_method",
+        out_path=out_dir / "plot_eps_emp_vs_noise_by_method.png",
+        title="Empirical epsilon LB vs noise multiplier by poisoning method",
+    )
+    _plot_grouped_lines(
+        df,
+        x_col="max_grad_norm",
+        y_col="epsilon_empirical_lb",
+        group_col="poison_method",
+        out_path=out_dir / "plot_eps_emp_vs_clip_by_method.png",
+        title="Empirical epsilon LB vs clipping norm by poisoning method",
+    )
+    _plot_grouped_lines(
+        df,
+        x_col="noise_multiplier",
+        y_col="gap_ratio",
+        group_col="poison_method",
+        out_path=out_dir / "plot_gap_vs_noise_by_method.png",
+        title="Gap ratio vs noise multiplier by poisoning method",
+    )
+    _plot_grouped_lines(
+        df,
+        x_col="noise_multiplier",
+        y_col="epsilon_theoretical",
+        group_col="poison_method",
+        out_path=out_dir / "plot_theo_vs_empirical_noise_by_method.png",
+        title="Theoretical epsilon vs noise multiplier by poisoning method",
+    )
+    _plot_grouped_lines(
+        df,
+        x_col="max_grad_norm",
+        y_col="epsilon_theoretical",
+        group_col="poison_method",
+        out_path=out_dir / "plot_theo_vs_empirical_clip_by_method.png",
+        title="Theoretical epsilon vs clipping norm by poisoning method",
     )
 
     if "poison_method" in df.columns and df["poison_method"].nunique() > 1:
@@ -293,8 +337,7 @@ def run_all(config_path: str, output_dir: str, max_configs: int | None = None) -
         plt.savefig(out_dir / "plot_empirical_eps_by_method.png", dpi=180)
         plt.close()
 
-    # NEW: Compute and save hyperparameter sensitivity ranking
-    sensitivity_df = _compute_sensitivity(df, sweep_keys=list(cfg.get("sweep", {}).keys()))
+    sensitivity_df = _compute_sensitivity(df, sweep_keys=sweep_keys)
     sensitivity_csv = out_dir / "sensitivity_analysis.csv"
     sensitivity_df.to_csv(sensitivity_csv, index=False)
 
@@ -315,4 +358,42 @@ def run_all(config_path: str, output_dir: str, max_configs: int | None = None) -
         print(f"Saved to {method_csv}")
     print(f"Saved to {critical_csv}")
 
+
+def load_results(results_csv: str) -> pd.DataFrame:
+    return pd.read_csv(results_csv)
+
+
+def run_all(config_path: str, output_dir: str, max_configs: int | None = None) -> pd.DataFrame:
+    cfg = load_config(config_path)
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    x_train, y_train, x_test, y_test = load_binary_fashion_mnist(
+        data_dir=cfg["dataset"]["data_dir"],
+        max_train_per_class=cfg["dataset"]["max_train_per_class"],
+        max_test_per_class=cfg["dataset"]["max_test_per_class"],
+    )
+
+    base = cfg["base"]
+    combos = list(_grid_from_sweep(cfg["sweep"]))
+    if max_configs is not None:
+        combos = combos[:max_configs]
+
+    rows = []
+    for combo in tqdm(combos, desc="Running configs"):
+        run_cfg = {**base, **combo}
+        result = run_audit(x_train, y_train, x_test, y_test, run_cfg)
+        rows.append({**run_cfg, **result})
+
+    df = pd.DataFrame(rows)
+    _write_outputs(df, out_dir, sweep_keys=list(cfg.get("sweep", {}).keys()))
+
+    return df
+
+
+def regenerate_outputs(results_csv: str, output_dir: str) -> pd.DataFrame:
+    df = load_results(results_csv)
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _write_outputs(df, out_dir, sweep_keys=list(df.columns))
     return df

@@ -31,11 +31,11 @@ wheels/
 *.pth
 *.ckpt
 
-# Data and results
-data/
-results/
-*.csv
-*.log
+# # Data and results
+# data/
+# results/
+# *.csv
+# *.log
 
 # IDE and editor
 .vscode/

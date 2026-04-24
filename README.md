@@ -80,6 +80,14 @@ python run_experiments.py --config configs/sweep.yaml --output-dir results --max
 python run_experiments.py --config configs/sweep.yaml --output-dir results --max-configs 2
 ```
 
+### Plot-only refresh command
+
+```powershell
+python run_experiments.py --plots-only --results-csv results/summary.csv --output-dir results
+```
+
+Use this when you only want to regenerate plots and CSV summaries from an existing run.
+
 ### Important output files
 
 - results/summary.csv
@@ -92,6 +100,11 @@ python run_experiments.py --config configs/sweep.yaml --output-dir results --max
 - results/plot_theo_vs_empirical_noise.png
 - results/plot_theo_vs_empirical_clip.png
 - results/plot_empirical_eps_by_method.png
+- results/plot_eps_emp_vs_noise_by_method.png
+- results/plot_eps_emp_vs_clip_by_method.png
+- results/plot_gap_vs_noise_by_method.png
+- results/plot_theo_vs_empirical_noise_by_method.png
+- results/plot_theo_vs_empirical_clip_by_method.png
 
 ### Current sweep settings
 
@@ -148,4 +161,5 @@ Higher `epsilon_empirical_lb` with low absolute `utility_drop` suggests privacy 
 - Seeds are controlled through the config file.
 - Increase `num_trials` for tighter confidence intervals.
 - Use `--max-configs` for a quick smoke run before full sweeps.
+- Use `--plots-only` if the experiments are already complete and you only want refreshed figures.
 
